@@ -1,0 +1,31 @@
+name: Build ShoyoRender
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Baixar GL4ES (commit fixo)
+        run: |
+          git clone https://github.com/PojavLauncherTeam/gl4es gl4es
+          git -C gl4es checkout "$(cat GL4ES_COMMIT)"
+      - name: Aplicar patches
+        run: |
+          for p in patches/*.patch; do
+            [ -f "$p" ] || continue
+            echo "patch: $p"
+            git -C gl4es apply "$GITHUB_WORKSPACE/$p"
+          done
+      - name: Renomear modulo para shoyorender
+        run: sed -i 's/^LOCAL_MODULE := gl4es_115/LOCAL_MODULE := shoyorender/' gl4es/Android.mk && grep -n "LOCAL_MODULE :=" gl4es/Android.mk
+      - name: Compilar (Android NDK, arm64-v8a)
+        run: |
+          cd gl4es
+          printf 'APP_ABI := arm64-v8a\nAPP_PLATFORM := android-26\nAPP_OPTIM := release\nAPP_STL := none\n' > Application.mk
+          "$ANDROID_NDK_LATEST_HOME/ndk-build" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./Android.mk NDK_APPLICATION_MK=./Application.mk -j"$(nproc)"
+          ls -la libs/arm64-v8a
+          "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d libs/arm64-v8a/libshoyorender.so | grep -E "SONAME|NEEDED"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ShoyoRender
+          path: gl4es/libs/arm64-v8a/libshoyorender.so
